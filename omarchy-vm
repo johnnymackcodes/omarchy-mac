@@ -59,6 +59,27 @@ cmd_doctor() {
 }
 
 cmd_install() {
+  # QEMU keeps running after this script exits, so a re-run after an
+  # interrupted install would otherwise do the whole download-and-prompt dance
+  # before failing at the last step.
+  if vm_running; then
+    printf '%sA VM is already running (pid %s).%s\n\n' "$C_YELLOW$C_BOLD" "$(vm_pid)" "$C_RESET"
+    printf '  Its window may still be open with the install in progress.\n'
+    printf '  To abandon it and boot the installer again:  ./omarchy-vm stop && ./install\n'
+    printf '  To wipe the disk and start completely clean: ./omarchy-vm destroy\n\n'
+    exit 1
+  fi
+
+  # Re-running install over a disk that already has Omarchy on it would boot
+  # the installer at a populated disk, which is rarely what anyone wants.
+  if [[ -f "$INSTALLED_MARKER" ]]; then
+    printf '%sThis VM has already been installed (%s).%s\n\n' \
+      "$C_YELLOW$C_BOLD" "$(cat "$INSTALLED_MARKER")" "$C_RESET"
+    printf '  To boot it:                    ./omarchy-vm start\n'
+    printf '  To wipe it and install again:  ./omarchy-vm destroy && ./install\n\n'
+    exit 1
+  fi
+
   cmd_doctor
   iso_download
   vm_create_disk

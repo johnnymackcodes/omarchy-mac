@@ -86,6 +86,26 @@ cheap x86 mini PC running it on bare metal, with this Mac as the client.
 ./omarchy-vm destroy --all   Also delete the ISO
 ```
 
+## Starting over
+
+Exiting the install script does not stop the VM. QEMU is backgrounded on purpose
+so closing a terminal cannot kill your machine mid-install. Check what you have
+before doing anything:
+
+```bash
+./omarchy-vm status
+```
+
+| Situation | What to run |
+|---|---|
+| Quit during the 8 GB download | `./install`, the transfer resumes |
+| Status says `running` | `./omarchy-vm stop && ./install` |
+| Guided installer went wrong | `./omarchy-vm destroy` then `./install` |
+| You think the ISO is corrupt | `./omarchy-vm destroy --all` then `./install` |
+
+`destroy` keeps the ISO, so starting over does not mean downloading 8 GB again.
+Only `destroy --all` removes it.
+
 ## Configuration
 
 Copy `omarchy.conf.example` to `omarchy.conf`. Defaults are tuned for a 14-core
