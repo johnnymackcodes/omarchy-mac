@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# omarchy-vm: lifecycle control for the Omarchy x86_64 VM on Apple Silicon.
+
+set -euo pipefail
+
+SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$SELF_DIR/lib/common.sh"
+# shellcheck source=lib/deps.sh
+source "$SELF_DIR/lib/deps.sh"
+# shellcheck source=lib/iso.sh
+source "$SELF_DIR/lib/iso.sh"
+# shellcheck source=lib/vm.sh
+source "$SELF_DIR/lib/vm.sh"
+
+load_config
+
+usage() {
+  cat <<'EOF'
+omarchy-vm: run Omarchy (x86_64) on an Apple Silicon Mac under QEMU.
+
+Usage: omarchy-vm <command> [options]
+
+Setup
+  doctor            Check the host, QEMU build and firmware
+  iso               Download and verify the Omarchy ISO
+  iso --latest      Report whether the pinned version is still current
+  install           Boot the installer media to set up the guest
+
+Running
+  start             Boot from disk in a window       (--headless for VNC)
+  stop              ACPI power-down, then terminate if it hangs
+  restart           stop, then start
+  status            Show VM state, disk usage and ports
+
+Access
+  ssh [user]        SSH into the guest on localhost:PORT
+  vnc               Open the VNC console (headless mode only)
+  log               Tail the QEMU log
+  monitor           Open the QEMU monitor console
+
+Maintenance
+  tune              Print guest config that makes software rendering bearable
+  destroy           Delete the disk image and UEFI varstore
+  destroy --all     Also delete the downloaded ISO
+
+Configuration lives in omarchy.conf (see omarchy.conf.example).
+EOF
+}
+
+cmd_doctor() {
+  log "Checking host"
+  preflight_host
+  log "Checking dependencies"
+  install_deps
+  log "Checking QEMU capabilities"
+  preflight_qemu
+  ok "All checks passed"
+}
+
+cmd_install() {
+  cmd_doctor
+  iso_download
+  vm_create_disk
+
+  cat <<EOF
+
+$C_BOLD Booting the Omarchy installer.$C_RESET
+
+  A QEMU window will open. Work through Omarchy's guided installer inside it:
+  pick the virtual disk (it is the only one), set your user and password, and
+  let it run. Upstream quotes 2 to 10 minutes on real hardware. Under emulation
+  budget considerably longer.
+
+  Two things to know going in:
+    - Secure Boot is off and the disk is blank, so Omarchy's preflight guards
+      will pass without complaint.
+    - The guest reports x86_64, so the installer's architecture check is happy.
+
+  When the guest reboots to a desktop, come back here and run:
+      ./omarchy-vm stop
+      ./omarchy-vm start
+
+EOF
+
+  read -r -p "Press Return to boot the installer. " _
+  vm_start iso "${DISPLAY_MODE:-window}"
+
+  info "The installer is booting. This command is done; the VM keeps running."
+  info "Once Omarchy is installed, 'stop' then 'start' to boot from disk."
+}
+
+cmd_start() {
+  [[ -f "$DISK_IMG" ]] || die "No disk image yet. Run './omarchy-vm install' first."
+  vm_start disk "${DISPLAY_MODE:-window}"
+
+  # Booting from disk at all means the guided install got far enough to write
+  # a bootable system, so record it the first time it happens.
+  if [[ ! -f "$INSTALLED_MARKER" ]]; then
+    printf '%s\n' "first booted from disk $(date '+%Y-%m-%d %H:%M:%S')" >"$INSTALLED_MARKER"
+  fi
+}
+
+cmd_ssh() {
+  local user="${1:-}"
+  if [[ -z "$user" ]]; then
+    user="${OMARCHY_USER:-}"
+    [[ -n "$user" ]] || die "Pass a username: './omarchy-vm ssh yourname', or set OMARCHY_USER in omarchy.conf."
+  fi
+  vm_running || warn "VM does not appear to be running."
+  # The guest identity changes whenever the disk is rebuilt, so keep its host
+  # key out of the real known_hosts file.
+  exec ssh -p "$SSH_PORT" \
+    -o UserKnownHostsFile="$STATE_DIR/known_hosts" \
+    -o StrictHostKeyChecking=accept-new \
+    "$user@127.0.0.1"
+}
+
+cmd_vnc() {
+  vm_running || die "VM is not running."
+  local port=$((5900 + VNC_DISPLAY))
+  log "Opening vnc://127.0.0.1:$port"
+  open "vnc://127.0.0.1:$port"
+}
+
+cmd_monitor() {
+  [[ -S "$MONITOR_SOCK" ]] || die "No monitor socket. Is the VM running?"
+  info "QEMU monitor. Type 'quit' to close the console (this halts the VM)."
+  nc -U "$MONITOR_SOCK"
+}
+
+cmd_destroy() {
+  local also_iso="${1:-}"
+
+  printf '%sThis deletes the VM disk at:%s\n  %s\n' "$C_YELLOW$C_BOLD" "$C_RESET" "$DISK_IMG"
+  [[ "$also_iso" == "--all" ]] && printf '  %s\n' "$ISO_FILE"
+  printf 'Everything installed inside the guest is lost.\n\n'
+
+  confirm "Type 'yes' to confirm:" || { info "Cancelled, nothing removed."; return 0; }
+
+  if vm_running; then vm_stop; fi
+  rm -f "$DISK_IMG" "$UEFI_VARS" "$INSTALLED_MARKER"
+  ok "Removed the disk image and UEFI varstore"
+
+  if [[ "$also_iso" == "--all" ]]; then
+    rm -f "$ISO_FILE" "$ISO_FILE.sha256"
+    ok "Removed the ISO"
+  fi
+}
+
+cmd_tune() {
+  cat <<'EOF'
+Software rendering is the bottleneck in this setup, and Hyprland's default
+config spends most of its frame budget on effects. Run this inside the guest to
+turn the expensive ones off:
+
+  mkdir -p ~/.config/hypr
+  cat >> ~/.config/hypr/hyprland.conf <<'HYPRCONF'
+
+  # omarchy-mac: emulation is CPU-only, so drop GPU-bound effects
+  animations {
+    enabled = false
+  }
+  decoration {
+    blur {
+      enabled = false
+    }
+    shadow {
+      enabled = false
+    }
+    rounding = 0
+  }
+  misc {
+    vfr = true
+    disable_hyprland_logo = true
+  }
+  HYPRCONF
+
+  hyprctl reload
+
+Two more things that help more than any flag:
+
+  - Do real work over 'omarchy-vm ssh'. A terminal through SSH is genuinely
+    fast; the compositor is what crawls.
+  - Keep Chromium closed unless you need it. It is the single heaviest thing
+    in the default package set under emulation.
+EOF
+}
+
+main() {
+  local cmd="${1:-}"
+  [[ $# -gt 0 ]] && shift || true
+
+  # A --headless anywhere in the remaining arguments selects VNC.
+  local rest=()
+  for arg in "$@"; do
+    if [[ "$arg" == "--headless" ]]; then
+      DISPLAY_MODE="headless"
+    else
+      rest+=("$arg")
+    fi
+  done
+  set -- ${rest[@]+"${rest[@]}"}
+
+  case "$cmd" in
+    doctor)   cmd_doctor ;;
+    iso)      if [[ "${1:-}" == "--latest" ]]; then iso_check_latest; else iso_download; fi ;;
+    install)  cmd_install ;;
+    start)    cmd_start ;;
+    stop)     vm_stop ;;
+    restart)  vm_stop; cmd_start ;;
+    status)   vm_status ;;
+    ssh)      cmd_ssh "${1:-}" ;;
+    vnc)      cmd_vnc ;;
+    monitor)  cmd_monitor ;;
+    log)      tail -f "$QEMU_LOG" ;;
+    tune)     cmd_tune ;;
+    destroy)  cmd_destroy "${1:-}" ;;
+    ""|-h|--help|help) usage ;;
+    *)        printf 'Unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 1 ;;
+  esac
+}
+
+main "$@"

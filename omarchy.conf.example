@@ -1,0 +1,47 @@
+# Copy to omarchy.conf to override defaults. Environment variables win over
+# this file, and this file wins over the built-in defaults.
+
+# --- Omarchy release -------------------------------------------------------
+
+# Pinned so a silent upstream bump cannot change what you install.
+# Run './omarchy-vm iso --latest' to see whether a newer release exists.
+# OMARCHY_VERSION="3.8.4"
+
+# Upstream publishes no checksum for the ISO. The first download records the
+# SHA-256 it received in a .sha256 sidecar and re-checks it on later runs. Set
+# this to a digest you trust to get real verification instead.
+# OMARCHY_ISO_SHA256=""
+
+# --- VM resources ----------------------------------------------------------
+
+# Defaults are tuned for a 14-core (10P/4E), 24 GB M4 Pro. Under TCG, more
+# vCPUs than you have performance cores costs more than it returns.
+# VM_CPUS="6"
+# VM_MEMORY="8192"          # MB
+# VM_DISK_SIZE="120G"       # sparse qcow2, only grows as the guest fills it
+
+# 'max' advertises everything TCG can emulate, which is the most compatible
+# option. Narrow it only if you hit an illegal-instruction crash.
+# VM_CPU_MODEL="max"
+
+# Emulated audio costs CPU you may prefer to spend elsewhere. Set to 0 to drop
+# the sound device entirely.
+# VM_AUDIO="1"
+
+# --- Networking ------------------------------------------------------------
+
+# Host port forwarded to the guest's SSH. Change it if 2222 is taken.
+# SSH_PORT="2222"
+
+# VNC display number for headless mode; the port is 5900 plus this.
+# VNC_DISPLAY="1"
+
+# The account you created during the Omarchy install, so './omarchy-vm ssh'
+# needs no argument.
+# OMARCHY_USER=""
+
+# --- Storage ---------------------------------------------------------------
+
+# Where the ISO, disk image and runtime sockets live. Point this at an external
+# volume if your internal disk is tight.
+# OMARCHY_MAC_STATE="$HOME/.local/share/omarchy-mac"

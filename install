@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# One-shot entry point: check the host, install QEMU, fetch the ISO, create the
+# disk and boot the Omarchy installer. Safe to re-run; every step is idempotent
+# and the 8 GB download resumes.
+
+set -euo pipefail
+
+SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+cat <<'BANNER'
+
+  omarchy-mac
+
+  Omarchy x86_64 under QEMU on Apple Silicon.
+  No hardware virtualisation exists for x86 guests on this CPU, so the whole
+  machine is emulated. It works, and it is slow. See README.md before you
+  decide this is the setup you want to live in.
+
+BANNER
+
+exec "$SELF_DIR/omarchy-vm" install "$@"

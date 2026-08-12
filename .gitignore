@@ -1,0 +1,18 @@
+# Local overrides
+omarchy.conf
+
+# VM artifacts should never land here (they default to ~/.local/share/omarchy-mac),
+# but guard against a misconfigured OMARCHY_MAC_STATE pointing at the checkout.
+*.iso
+*.iso.sha256
+*.qcow2
+*.fd
+*.sock
+*.pid
+*.log
+iso/
+vm/
+run/
+log/
+
+.DS_Store
