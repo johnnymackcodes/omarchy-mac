@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Fetch-or-update omarchy-mac and run the installer.
+#
+# Designed to be safe to pipe into bash and safe to run repeatedly:
+#   curl -fsSL https://raw.githubusercontent.com/johnnymackcodes/omarchy-mac/main/bootstrap | bash
+#
+# Options (as environment variables, since a piped script gets no arguments):
+#   OMARCHY_MAC_DIR   where to put the checkout
+#   BOOTSTRAP_SYNC    set to 1 to clone/update only, without running ./install
+
+set -euo pipefail
+
+REPO_URL="https://github.com/johnnymackcodes/omarchy-mac.git"
+REPO_SLUG="johnnymackcodes/omarchy-mac"
+
+if [[ -t 1 ]]; then
+  C_RESET=$'\033[0m'; C_DIM=$'\033[2m'; C_BOLD=$'\033[1m'
+  C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'
+else
+  C_RESET=""; C_DIM=""; C_BOLD=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""
+fi
+log()  { printf '%s==>%s %s\n' "$C_BLUE$C_BOLD" "$C_RESET" "$*"; }
+ok()   { printf '%s  ok%s %s\n' "$C_GREEN" "$C_RESET" "$*"; }
+info() { printf '%s     %s%s\n' "$C_DIM" "$*" "$C_RESET"; }
+warn() { printf '%swarn%s %s\n' "$C_YELLOW$C_BOLD" "$C_RESET" "$*" >&2; }
+die()  { printf '%sfail%s %s\n' "$C_RED$C_BOLD" "$C_RESET" "$*" >&2; exit 1; }
+
+# ---------------------------------------------------------------- location
+
+# Land next to the user's other checkouts if they keep a projects directory,
+# rather than dropping a repo wherever the shell happened to be.
+pick_target() {
+  if [[ -n "${OMARCHY_MAC_DIR:-}" ]]; then
+    printf '%s\n' "$OMARCHY_MAC_DIR"
+  elif [[ -d "$HOME/Projects" ]]; then
+    printf '%s\n' "$HOME/Projects/omarchy-mac"
+  elif [[ -d "$HOME/src" ]]; then
+    printf '%s\n' "$HOME/src/omarchy-mac"
+  else
+    printf '%s\n' "$HOME/omarchy-mac"
+  fi
+}
+
+TARGET="$(pick_target)"
+
+# ---------------------------------------------------------------- prereqs
+
+[[ "$(uname -s)" == "Darwin" ]] \
+  || die "omarchy-mac targets macOS. On x86 hardware, install Omarchy directly instead."
+
+if ! command -v git >/dev/null 2>&1; then
+  die "git is missing. Install the Xcode command line tools with: xcode-select --install"
+fi
+
+# ---------------------------------------------------------------- sync
+
+sync_repo() {
+  if [[ -d "$TARGET/.git" ]]; then
+    local remote
+    remote="$(git -C "$TARGET" remote get-url origin 2>/dev/null || true)"
+    # Refuse to touch an unrelated repo that happens to sit at this path.
+    if [[ "$remote" != *"$REPO_SLUG"* ]]; then
+      die "$TARGET is a git repo for '$remote', not $REPO_SLUG. Set OMARCHY_MAC_DIR to somewhere else."
+    fi
+
+    # Local edits (and omarchy.conf, which is gitignored) must survive.
+    if [[ -n "$(git -C "$TARGET" status --porcelain)" ]]; then
+      warn "$TARGET has uncommitted changes, leaving them alone and skipping the update."
+    else
+      log "Updating $TARGET"
+      if git -C "$TARGET" pull --ff-only --quiet; then
+        ok "Up to date at $(git -C "$TARGET" rev-parse --short HEAD)"
+      else
+        warn "Could not fast-forward. Using the checkout as-is."
+      fi
+    fi
+
+  elif [[ -e "$TARGET" ]]; then
+    die "$TARGET already exists and is not a git checkout. Move it or set OMARCHY_MAC_DIR."
+
+  else
+    log "Cloning $REPO_SLUG into $TARGET"
+    mkdir -p "$(dirname "$TARGET")"
+    git clone --quiet "$REPO_URL" "$TARGET" || die "Clone failed."
+    ok "Cloned to $TARGET"
+  fi
+
+  [[ -x "$TARGET/install" ]] || chmod +x "$TARGET/install" "$TARGET/omarchy-vm"
+}
+
+sync_repo
+
+if [[ "${BOOTSTRAP_SYNC:-0}" == "1" ]]; then
+  ok "Sync only. Run it yourself with:"
+  info "cd $TARGET && ./install"
+  exit 0
+fi
+
+# ---------------------------------------------------------------- hand off
+
+cd "$TARGET"
+
+# A permission check on /dev/tty is not enough: it passes even when there is no
+# controlling terminal to open, and the failure would then take out the exec.
+# Actually open it in a subshell to find out.
+tty_usable() { (exec 3</dev/tty) 2>/dev/null; }
+
+# When this script is piped into bash, stdin is the script itself, so the
+# installer's prompts would read EOF and skip. Reattach the terminal.
+if [[ -t 0 ]]; then
+  exec ./install
+elif tty_usable; then
+  exec ./install </dev/tty
+else
+  warn "No controlling terminal, so the installer cannot prompt. Synced only."
+  info "Run it interactively with: cd $TARGET && ./install"
+  exit 0
+fi

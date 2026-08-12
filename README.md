@@ -3,14 +3,33 @@
 Run [Omarchy](https://omarchy.org/) on an Apple Silicon Mac, from the command line.
 
 ```bash
-git clone https://github.com/johnnymackcodes/omarchy-mac.git
-cd omarchy-mac
-./install
+curl -fsSL https://raw.githubusercontent.com/johnnymackcodes/omarchy-mac/main/bootstrap | bash
 ```
 
 That checks the host, installs QEMU, downloads and verifies the 8 GB ISO, creates
 a sparse 120 GB disk and boots Omarchy's guided installer. Re-running it is safe:
 every step is idempotent and the download resumes.
+
+The bootstrap picks its own location rather than cloning into whatever directory
+you are standing in. It uses `~/Projects/omarchy-mac` or `~/src/omarchy-mac` if
+either parent already exists, otherwise `~/omarchy-mac`. Override with
+`OMARCHY_MAC_DIR`. On later runs it fast-forwards the existing checkout instead
+of failing, skips the update if you have local edits, and refuses to touch the
+path if something unrelated is sitting there.
+
+```bash
+# Put it somewhere specific
+OMARCHY_MAC_DIR=~/vms/omarchy-mac bash -c "$(curl -fsSL https://raw.githubusercontent.com/johnnymackcodes/omarchy-mac/main/bootstrap)"
+
+# Clone or update without running the installer
+curl -fsSL https://raw.githubusercontent.com/johnnymackcodes/omarchy-mac/main/bootstrap | BOOTSTRAP_SYNC=1 bash
+```
+
+Or clone it yourself, which is identical from the second command onward:
+
+```bash
+git clone https://github.com/johnnymackcodes/omarchy-mac.git && cd omarchy-mac && ./install
+```
 
 ## Read this before you start
 
@@ -112,10 +131,20 @@ download. Set `OMARCHY_ISO_SHA256` to a digest you trust for real verification.
 
 ## What runs on your machine
 
+`bootstrap` clones or fast-forwards the repo and hands off to `install`. It never
+force-updates over local changes and never writes to a path holding something
+else.
+
 `install` will: install the `qemu` Homebrew formula if missing, write to
 `~/.local/share/omarchy-mac`, and download from `iso.omarchy.org`. It does not
 touch your boot disk, partition table, or macOS install, and it needs no `sudo`.
 `destroy` is the only destructive command and it requires typing `yes`.
+
+If you would rather read before you pipe, the bootstrap is 100 lines:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/johnnymackcodes/omarchy-mac/main/bootstrap | less
+```
 
 ## License
 
