@@ -28,6 +28,14 @@
 # the sound device entirely.
 # VM_AUDIO="1"
 
+# Disk cache mode. 'writeback' is the safe default. 'unsafe' tells QEMU to
+# ignore the guest's flush requests, which removes the fsync-through-qcow2-onto-
+# APFS round trips that show up as multi-second stalls during package installs.
+# The tradeoff is real: a host crash or a hard kill mid-write corrupts the guest
+# filesystem. Reasonable during the initial install, which you can always redo.
+# Switch back to writeback once you are running the system for real.
+# VM_DISK_CACHE="writeback"
+
 # --- Networking ------------------------------------------------------------
 
 # Host port forwarded to the guest's SSH. Change it if 2222 is taken.

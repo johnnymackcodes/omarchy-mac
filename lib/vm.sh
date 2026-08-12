@@ -44,7 +44,10 @@ vm_build_args() {
     -drive "if=pflash,format=raw,readonly=on,file=$share/edk2-x86_64-code.fd"
     -drive "if=pflash,format=raw,file=$UEFI_VARS"
 
-    -drive "if=none,id=hd0,file=$DISK_IMG,format=qcow2,cache=writeback,discard=unmap"
+    # Every guest fsync becomes a real fsync through qcow2 onto APFS, which is
+    # a common source of multi-second stalls during package installs. See
+    # VM_DISK_CACHE in omarchy.conf.example before changing this.
+    -drive "if=none,id=hd0,file=$DISK_IMG,format=qcow2,cache=${VM_DISK_CACHE:-writeback},discard=unmap"
     -device virtio-blk-pci,drive=hd0
 
     -netdev "user,id=net0,hostfwd=tcp::${SSH_PORT}-:22"

@@ -86,6 +86,31 @@ cheap x86 mini PC running it on bare metal, with this Mac as the client.
 ./omarchy-vm destroy --all   Also delete the ISO
 ```
 
+## Measured: tuning does not save this
+
+Boot-to-login of an x86_64 Alpine guest on an M4 Pro (10P/4E, 24 GB), QEMU 11.0.3:
+
+| Config | Boot to login |
+|---|---|
+| `cpu=max smp=6` (default) | 10s |
+| `cpu=Nehalem smp=6` | 13s |
+| `cpu=qemu64 smp=6` | 9s |
+| `cpu=Nehalem smp=4` | 12s |
+| `cpu=Nehalem smp=2` | 12s |
+| `cpu=max smp=10` | 10s |
+
+Narrowing the CPU model to avoid TCG's software AVX2 emulation was the obvious
+lever, and it does nothing. Neither does changing the vCPU count. Every config
+lands within a few seconds of the others. The bottleneck is binary translation
+itself, and no flag removes it.
+
+If you are hitting multi-second freezes rather than uniform slowness, try
+`VM_DISK_CACHE="unsafe"` for the install. That is the one setting targeting
+stalls specifically, since it drops the guest's fsyncs instead of pushing them
+through qcow2 onto APFS. Read the warning in `omarchy.conf.example` first.
+
+For anything beyond evaluation, run Omarchy on x86 hardware.
+
 ## Starting over
 
 Exiting the install script does not stop the VM. QEMU is backgrounded on purpose
